@@ -24,15 +24,11 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
 
-        let mut lsrs = Lsrs {
-            path: &cur_path,
-            size: 0,
-        };
+        let mut lsrs = Lsrs::new(&cur_path);
 
-        if cur_path.is_dir() {
-            lsrs.traverse_dir(None).context("got some error")?;
-        }
-        let dir_size = lsrs.calculate_size();
+        lsrs.traverse_dir(&cur_path).context("got some error")?;
+        let mut dir_size = lsrs.calculate_size();
+        dir_size += "\n";
         stdout.write_all(dir_size.as_bytes())?;
     }
 
@@ -45,6 +41,10 @@ struct Lsrs<'a> {
 }
 
 impl<'a> Lsrs<'a> {
+    fn new(p: &PathBuf) -> Lsrs {
+        let lsrs = Lsrs { path: p, size: 0 };
+        lsrs
+    }
     fn permisison_graph(&mut self) -> String {
         let mode = self.path.metadata().unwrap().permissions().mode();
         let user_perms = format!(
@@ -70,6 +70,7 @@ impl<'a> Lsrs<'a> {
 
         return format!("{}{}{}", user_perms, group_perms, other_perms);
     }
+
     fn owners(&mut self) -> Result<(String, String)> {
         let owner = self
             .path
@@ -89,19 +90,22 @@ impl<'a> Lsrs<'a> {
 
         Ok((owner, group))
     }
-    fn traverse_dir(&mut self, p: Option<&PathBuf>) -> anyhow::Result<()> {
-        if p.is_none() {
+    fn traverse_dir(&mut self, path: &PathBuf) -> anyhow::Result<()> {
+        if path.is_file() {
+            let meta = path.metadata().context("couldn't get metadata")?;
+            self.size += meta.size();
+
             return Ok(());
         }
-        'looper: for entry in fs::read_dir(p.unwrap()).context("couldn't read the dir")? {
+
+        'looper: for entry in fs::read_dir(path).context("couldn't read the dir")? {
             let entry = entry?;
             let path = entry.path();
 
             if path.is_dir() {
-                self.traverse_dir(Some(&path))?;
+                self.traverse_dir(&path)?;
                 continue 'looper;
             }
-
             let meta = path.metadata().context("couldn't get metadata")?;
             self.size += meta.size();
         }
@@ -116,13 +120,13 @@ impl<'a> Lsrs<'a> {
         let GB = MB * 1024.0;
 
         if self.size < KB as u64 {
-            format!("{} B", self.size as f64 / KB)
+            format!("{}B", self.size as f64 / KB)
         } else if self.size < MB as u64 {
-            format!("{:.2} KB", self.size as f64 / KB)
+            format!("{:.2}KB", self.size as f64 / KB)
         } else if self.size < GB as u64 {
-            format!("{:.2} MB", self.size as f64 / MB)
+            format!("{:.2}MB", self.size as f64 / MB)
         } else {
-            format!("{:.2} GB", self.size as f64 / GB)
+            format!("{:.2}GB", self.size as f64 / GB)
         }
     }
 }
